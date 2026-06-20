@@ -6,7 +6,6 @@ const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 
-
 const pool = mysql.createPool({
   host    : process.env.MYSQLHOST,
   port    : parseInt(process.env.MYSQLPORT || '3306'),
@@ -39,6 +38,20 @@ async function initDB() {
   }
 }
 
+async function conectarConReintentos(intentos = 5) {
+  for (let i = 0; i < intentos; i++) {
+    try {
+      await pool.query('SELECT 1');
+      console.log('DB conectada');
+      return;
+    } catch (err) {
+      console.log(`Reintento ${i + 1}/${intentos}... (${err.message})`);
+      await new Promise(r => setTimeout(r, 3000));
+    }
+  }
+  throw new Error('No se pudo conectar a la DB tras varios intentos');
+}
+
 app.post('/gps', async (req, res) => {
   const { device_id, latitude, longitude, altitude, speed, satellites } = req.body;
 
@@ -46,7 +59,7 @@ app.post('/gps', async (req, res) => {
     return res.status(400).json({ error: 'Faltan latitude y longitude' });
   }
 
-  console.log(`📍 [${device_id}] lat=${latitude}, lng=${longitude}, alt=${altitude}m, vel=${speed}km/h, sats=${satellites}`);
+  console.log(`[${device_id}] lat=${latitude}, lng=${longitude}, alt=${altitude}m, vel=${speed}km/h, sats=${satellites}`);
 
   try {
     const [result] = await pool.execute(
@@ -54,7 +67,6 @@ app.post('/gps', async (req, res) => {
        VALUES (?, ?, ?, ?, ?, ?)`,
       [device_id || 'UNKNOWN', latitude, longitude, altitude || 0, speed || 0, satellites || 0]
     );
-
     res.status(201).json({ message: 'Guardado', insertedId: result.insertId });
   } catch (err) {
     console.error('Error DB:', err.message);
@@ -100,6 +112,7 @@ app.get('/health', async (req, res) => {
 async function main() {
   try {
     console.log('Conectando a MySQL de Railway...');
+    await conectarConReintentos();
     await initDB();
     app.listen(PORT, () => {
       console.log(`Servidor corriendo en puerto ${PORT}`);
